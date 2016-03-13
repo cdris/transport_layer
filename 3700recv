@@ -75,6 +75,13 @@ next_id_to_print = 0    # the next id to print to keep in order value
 eof_seen = False        # whether or not we've seen the last message
 timeouts_in_row = 0     # the number of udp receive timeouts we've seen in a row
 
+# sends an acknowledgement
+def ack():
+  msg = json.dumps(to_ranges(ids_seen))
+  log("ABOUT TO SEND " + msg)
+  if sock.sendto(msg, addr) < len(msg):
+    log("[error] unable to fully send packet")
+
 # Now listen for packets
 while True:
   result = sock.recvfrom(MSG_SIZE)
@@ -87,11 +94,8 @@ while True:
     try:
       decoded = json.loads(data)
       # this is an ack request, send out an acknowledgment
-      if decoded['ack']:
-        msg = json.dumps(to_ranges(ids_seen))
-        log("ABOUT TO SEND " + msg)
-        if sock.sendto(msg, addr) < len(msg):
-          log("[error] unable to fully send packet")
+      if decoded['ack']:      
+        ack()
       else: 
         id = decoded['id']
         data = decoded['data']
@@ -120,6 +124,7 @@ while True:
         
         # If we've seen the EOF flag and we have every packet up until it, exit
         if eof_seen and len(ids_seen) == ids_seen[-1] + 1:
+          ack()
           log("[completed]")
           exit(0)
     except (ValueError, KeyError, TypeError) as e:
