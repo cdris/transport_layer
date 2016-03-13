@@ -45,7 +45,7 @@ def write_messages(next_id, messages_in_memory):
   if next_id in messages_in_memory:
     sys.stdout.write(messages_in_memory[next_id])
     del messages_in_memory[next_id]
-    writes_messages(next_id + 1, messages_in_memory)
+    write_messages(next_id + 1, messages_in_memory)
   else:
     return next_id
 
