@@ -1,8 +1,4 @@
 #!/usr/bin/python -u
-#
-# CS3700, Spring 2015
-# Project 2 Starter Code
-#
 
 import sys
 import socket
@@ -11,46 +7,97 @@ import datetime
 import select
 import json
 
-MSG_SIZE = 1500
-DATA_SIZE = 1000
-TIMEOUT = 30
-SEQUENCE = 0
+MSG_SIZE = 1500    # bytes to read in
+DATA_SIZE = 1000   # size of data messages
+TIMEOUT = 30       # timeout for hearing an ack
+ID = 0             # id of the next packet to be sent
+WINDOW = 1         # size of the sending window
+IN_FLIGHT = {}     # packets in flight (id : data)
+SLOW_START = True  # whether we are in slow start state
+EOF = False        # whether the EOF has been reached
 
 # Bind to localhost and an ephemeral port
 IP_PORT = sys.argv[1]
-UDP_IP = IP_PORT[0:IP_PORT.find(":")]
-UDP_PORT = int(IP_PORT[IP_PORT.find(":")+1:])
+UDP_IP = IP_PORT[0:IP_PORT.find(':')]
+UDP_PORT = int(IP_PORT[IP_PORT.find(':')+1:])
 dest = (UDP_IP, UDP_PORT)
 
-# Set up the socket
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) 
+# set up the socket
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.settimeout(TIMEOUT)
 
+# converts a string representation of received IDs into a set
+def from_ranges(s):
+  result = set()
+  if s != '':
+    ranges = s.split(' ')
+    for r in ranges:
+      bounds = r.split(':')
+      if len(bounds) > 1:
+        for x in range(int(bounds[0]), int(bounds[1]) + 1):
+          result.add(x)
+      else:
+        result.add(int(bounds[0]))
+  return result
+
+# creates a dictionary with only the elements of the given dictionary
+# whose keys are not in the given set
+def evict(d, s):
+  result = {}
+  for key, value in d.items():
+    if key not in s:
+       result[key] = value
+  return result
+
+# adds new data packets to the given dictionary to fill the sending window
+# and sends the ack request to the receiver
+def add_to(d):
+  while len(d) < WINDOW:
+    d[ID] = send_next_packet()
+  send_ack_request()
+  return d
+
+# logs the given string to STDERR with microsecond-accurate timestamp
 def log(string):
   sys.stderr.write(datetime.datetime.now().strftime("%H:%M:%S.%f") + " " + string + "\n")
 
+# sends the ack request message
+def send_ack_request():
+  msg = json.dumps({'ack': True})
+  sock.sendto(msg, dest)
+
+# sends the next packet and increments the ID
 def send_next_packet():
-  global SEQUENCE
-
+  global ID
+  global EOF
   data = sys.stdin.read(DATA_SIZE)
-  if (len(data) > 0):
-    msg = json.dumps({"sequence": SEQUENCE, "data": data, "ack": False, "eof": False})
-    SEQUENCE += len(data)
-
+  eof = False
+  if len(data) < DATA_SIZE:
+    EOF = True
+  if len(data) > 0:
+    msg = json.dumps({"id": ID, "data": data, "ack": False, "eof": EOF})
     if sock.sendto(msg, dest) < len(msg):
       log("[error] unable to fully send packet")
     else:
-      log("[send data] " + str(SEQUENCE) + " (" + str(len(data)) + ")")
-    return True
+      log("[send data] " + str(ID * DATA_SIZE) + " (" + str(len(data)) + ")")
+      ID += 1
+    return data
   else:
-    return False
+    return None
 
-# Send first packet
-send_next_packet()
+# updates the sending window based on the state
+def update_window(new):
+  global WINDOW
+  if SLOW_START:
+     WINDOW += new
+  elif new == WINDOW:
+    WINDOW += 1
+
+# sends the first packet
+add_to(IN_FLIGHT)
 
 # Now read in data, send packets
 while True:
-  log("ABOUT TO SLEEP")
   result = sock.recvfrom(MSG_SIZE)
 
   if result:
@@ -58,18 +105,27 @@ while True:
     try:
       decoded = json.loads(data)
 
-      # If there is an ack, send next packet
-      if decoded['ack'] == SEQUENCE:
-        log("[recv ack] " + str(SEQUENCE))
+      # mark in flight packets as ACKed
+      acks = from_ranges(decoded)
+      newly_acked = 0
+      for x in IN_FLIGHT.keys():
+        if x in acks:
+          log("[recv ack] " + str(x))
+          newly_acked += 1
 
-        # Try to send next packet; break if no more data
-        if (not send_next_packet()):
-          break
+      if acks == set(range(ID)) and EOF:
+        log('[completed]')
+        sys.exit(0)
+
+      update_window(newly_acked)
+
+      # evicts acked packets and sends new packets to fill flight window
+      IN_FLIGHT = add_to(evict(IN_FLIGHT, acks))
+
     except (ValueError, KeyError, TypeError):
       log("[recv corrupt packet]")
   else:
     log("[error] timeout")
-    sys.exit(-1)
-
-sock.sendto(json.dumps({"eof": True, "data": "", "sequence": SEQUENCE, "ack": False}), dest)
-sys.exit(0)
+    SLOW_START = False
+    send_ack_request()
+    WINDOW = (WINDOW * 2) // 3
