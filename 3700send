@@ -9,12 +9,14 @@ import json
 
 MSG_SIZE = 1500    # bytes to read in
 DATA_SIZE = 1000   # size of data messages
-TIMEOUT = 30       # timeout for hearing an ack
+TIMEOUT = 1        # timeout for hearing an ack
 ID = 0             # id of the next packet to be sent
 WINDOW = 1         # size of the sending window
 IN_FLIGHT = {}     # packets in flight (id : data)
 SLOW_START = True  # whether we are in slow start state
 EOF = False        # whether the EOF has been reached
+RTT = -1           # round trip time estimation
+TIMER = 0          # timestamp when last ack request was sent
 
 # Bind to localhost and an ephemeral port
 IP_PORT = sys.argv[1]
@@ -25,6 +27,16 @@ dest = (UDP_IP, UDP_PORT)
 # set up the socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.settimeout(TIMEOUT)
+
+# gets the current milliseconds
+def current_milliseconds():
+  return int(round(time.time() * 1000))
+
+# sets the global rtt based on the given time (in milliseconds)
+def estimate_rtt(new):
+  global RTT
+  alpha = 0.85
+  RTT = (alpha * RTT) + ((1 - alpha) * new)
 
 # converts a string representation of received IDs into a set
 def from_ranges(s):
@@ -70,6 +82,8 @@ def log(string):
 
 # sends the ack request message
 def send_ack_request():
+  global TIMER
+  TIMER = current_milliseconds()
   msg = json.dumps({'ack': True})
   if sock.sendto(msg, dest) < len(msg):
     log('[error] unable to send full ack request')
@@ -94,6 +108,14 @@ def send_next_packet():
     sock.sendto(msg, dest)
     return None
 
+# resends the packet with the given id
+def resend(id):
+  msg = json.dumps({'id': id, 'data': IN_FLIGHT[id], 'ack': False, 'eof': EOF})
+  if sock.sendto(msg, dest) < len(msg):
+    log('[error] unable to fully send packet')
+  else:
+    log('[resend data] ' + str(id * DATA_SIZE) + ' (' + str(len(IN_FLIGHT[id])) + ')')
+
 # updates the sending window based on the state
 def update_window(new):
   global WINDOW
@@ -107,12 +129,20 @@ add_to(IN_FLIGHT)
 
 # Now read in data, send packets
 while True:
-  result = sock.recvfrom(MSG_SIZE)
+  try:
+    result = sock.recvfrom(MSG_SIZE)
 
-  if result:
     (data, addr) = result
     try:
       decoded = json.loads(data)
+
+      new_sample = current_milliseconds() - TIMER
+      if RTT < 0:
+        RTT = new_sample
+      else:
+        estimate_rtt(new_sample)
+      sock.settimeout(RTT / 1000)
+      log(str(RTT))
 
       # mark in flight packets as ACKed
       acks = from_ranges(decoded)
@@ -121,6 +151,8 @@ while True:
         if x in acks:
           log("[recv ack] " + str(x))
           newly_acked += 1
+        else:
+          resend(x)
       
       if acks == set(range(ID)) and EOF:
         log('[completed]')
@@ -133,7 +165,7 @@ while True:
 
     except (ValueError, KeyError, TypeError):
       log("[recv corrupt packet]")
-  else:
+  except socket.timeout:
     log("[error] timeout")
     SLOW_START = False
     send_ack_request()

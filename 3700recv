@@ -55,7 +55,7 @@ def log(string):
 
 MSG_SIZE = 1500
 DATA_SIZE = 1000
-TIMEOUT = 30
+TIMEOUT = 1
 
 # Bind to localhost and an ephemeral port
 UDP_IP = "127.0.0.1"
@@ -85,10 +85,10 @@ def ack():
 
 # Now listen for packets
 while True:
-  result = sock.recvfrom(MSG_SIZE)
+  try:
+    result = sock.recvfrom(MSG_SIZE)
 
   # If nothing is ready, we hit the timeout
-  if result:
     timeouts_in_row = 0
     (data, addr) = result
 
@@ -131,9 +131,9 @@ while True:
           exit(0)
     except (ValueError, KeyError, TypeError) as e:
       log("[recv corrupt packet], IGNORED")
-  else:
+  except socket.timeout:
     log("[error] timeout")
     timeouts_in_row += 1
-    if timeouts_in_row == 5:
+    if timeouts_in_row == 555:
       log("[where are my messages?] EXITING")
       exit(-1)
