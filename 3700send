@@ -64,6 +64,7 @@ def log(string):
 # sends the ack request message
 def send_ack_request():
   msg = json.dumps({'ack': True})
+  log('SENDING ACK REQUEST')
   if sock.sendto(msg, dest) < len(msg):
     log('[error] unable to send full ack request')
 
@@ -74,7 +75,9 @@ def send_next_packet():
   data = sys.stdin.read(DATA_SIZE)
   if len(data) < DATA_SIZE:
     EOF = True
+    log('EOF')
   if len(data) > 0:
+    log(data)
     msg = json.dumps({"id": ID, "data": data, "ack": False, "eof": EOF})
     if sock.sendto(msg, dest) < len(msg):
       log("[error] unable to fully send packet")
@@ -83,6 +86,7 @@ def send_next_packet():
       ID += 1
     return data
   else:
+    log('NOTHING TO READ')
     return None
 
 # updates the sending window based on the state
