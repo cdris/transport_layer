@@ -28,15 +28,11 @@ dest = (UDP_IP, UDP_PORT)
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.settimeout(TIMEOUT)
 
-# gets the current milliseconds
-def current_milliseconds():
-  return int(round(time.time() * 1000))
-
 # sets the global rtt based on the given time (in milliseconds)
 def estimate_rtt(new):
   global RTT
   alpha = 0.85
-  RTT = (alpha * RTT) + ((1 - alpha) * new)
+  RTT = max(0.025, (alpha * RTT) + ((1 - alpha) * new))
 
 # converts a string representation of received IDs into a set
 def from_ranges(s):
@@ -83,7 +79,7 @@ def log(string):
 # sends the ack request message
 def send_ack_request():
   global TIMER
-  TIMER = current_milliseconds()
+  TIMER = time.clock()
   msg = json.dumps({'ack': True})
   if sock.sendto(msg, dest) < len(msg):
     log('[error] unable to send full ack request')
@@ -136,12 +132,12 @@ while True:
     try:
       decoded = json.loads(data)
 
-      new_sample = current_milliseconds() - TIMER
+      new_sample = time.clock() - TIMER
       if RTT < 0:
-        RTT = new_sample
+        RTT = max(0.025, new_sample)
       else:
         estimate_rtt(new_sample)
-      sock.settimeout(RTT / 1000)
+#      sock.settimeout(RTT * 20)
       log(str(RTT))
 
       # mark in flight packets as ACKed
@@ -169,4 +165,4 @@ while True:
     log("[error] timeout")
     SLOW_START = False
     send_ack_request()
-    WINDOW = (WINDOW * 2) // 3
+    WINDOW = WINDOW // 2

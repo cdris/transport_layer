@@ -43,7 +43,6 @@ def insert(key, keys):
 # prints all messages that can be printed and returns the next_id to print
 def write_messages(next_id, messages_in_memory):
   while next_id in messages_in_memory:
-    log("[debug messages] " + str(next_id) + " " + messages_in_memory[next_id])
     sys.stdout.write(messages_in_memory[next_id])
     sys.stdout.flush()
     del messages_in_memory[next_id]
@@ -99,7 +98,6 @@ while True:
         ack()
       else: 
         id = decoded['id']
-        log("[id received] " + str(id))
         data = decoded['data']
         packet_length = len(data)
         log_help = lambda x: log("[recv data] " + str(id * DATA_SIZE) + \
