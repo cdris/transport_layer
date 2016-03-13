@@ -31,25 +31,29 @@ def to_ranges(keys):
   else:
     return ""
   
-# inserts the tuple into the list of tuples in sorted order  
-def insert(tuple, tuples):
-  for i in range(len(tuples)):
-    if tuple[0] < tuples[i][0]:
-      tuples.insert(i, tuple)
-      return
-  tuples.append(tuple)
+# inserts the key into the list of keys in ascending order  
+def insert(key, keys):
+  for i in range(len(keys)):
+    if key < keys[i]:
+      keys.insert(i, key)
+      return i
+  keys.append(key)
+  return i + 1
 
-# prints all messages that can be printed
+# prints all messages that can be printed and returns the next_id to print
 def write_messages(next_id, messages_in_memory):
-  if next_id in messages_in_memory
+  if next_id in messages_in_memory:
     sys.stdout.write(messages_in_memory[next_id])
     del messages_in_memory[next_id]
     writes_messages(next_id + 1, messages_in_memory)
+  else:
+    return next_id
 
 def log(string):
   sys.stderr.write(datetime.datetime.now().strftime("%H:%M:%S.%f") + " " + string + "\n")
 
 MSG_SIZE = 1500
+DATA_SIZE = 1000
 TIMEOUT = 30
 
 # Bind to localhost and an ephemeral port
@@ -66,9 +70,9 @@ UDP_PORT = sock.getsockname()[1]
 log("[bound] " + str(UDP_PORT))
 
 ids_seen = []
-eof_seen = False
 messages_in_memory = {}
 next_id_to_print = 0
+eof_seen = False
 
 # Now listen for packets
 while True:
@@ -80,28 +84,44 @@ while True:
 
     try:
       decoded = json.loads(data)
+      # this is an ack request, send out an acknowledgment
+      if decoded['ack']:
+        msg = json.dumps(to_ranges(ids_seen))
+        log("ABOUT TO SEND " + msg)
+        if sock.sendto(msg, addr) < len(msg):
+          log("[error] unable to fully send packet")
+      else: 
+        id = decoded['id']
+        data = decoded['data']
+        packet_length = len(data)
+        log_help = lambda x: log("[recv data] " + str(id * DATA_SIZE) + \
+                             " (" + str(packet_length) + ") " + x)  
 
-      # If the EOF flag is set, exit
-      if (decoded['eof']):
-        log("[completed]")
-        sys.exit(0)
-
-      # If there is data, we accept it and print it out
-      if (decoded['data']):
-        # If we receive data, we assume it's in-order
-        # You will need to do much more here
-        log("[recv data] " + str(decoded['sequence']) + " (" + str(len(decoded['data'])) + ") ACCEPTED (in-order)")
-        sys.stdout.write(decoded['data'])
-
-      # Send back an ack to the sender
-      msg = json.dumps({"ack": decoded['sequence'] + len(decoded['data'])})
-      log("ABOUT TO SEND " + msg)
-      if sock.sendto(msg, addr) < len(msg):
-        log("[error] unable to fully send packet")
-
+        # If we've already seen this packet, ignore it
+        if id in ids_seen:
+          log_help("IGNORED")
+        else: 
+        # Add the packet to our collections, then check if it's in order or not
+          inserted_at = insert(id, ids_seen)
+          messages_in_memory[id] = data
+          if inserted_at == len(ids_seen):
+            log_help("RECEIVED (in order)")
+          else:
+            log_help("RECEIVED (out-of order)")
+  
+        # Print the messages we can
+        next_id_to_print = write_messages(next_id_to_print, messages_in_memory)
+  
+        # If the EOF flag is set, mark that we've seen the last packet
+        if decoded['eof']:
+          eof_seen = True
+        
+        # If we've seen the EOF flag and we have every packet up until it, exit
+        if eof_seen and len(ids_seen) == ids_seen[-1] + 1:
+          log("[completed]")
+          exit(0)
     except (ValueError, KeyError, TypeError) as e:
-      log("[recv corrupt packet]")
-      raise e
+      log("[recv corrupt packet], IGNORED")
   else:
     log("[error] timeout")
     sys.exit(-1)
