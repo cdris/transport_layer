@@ -52,8 +52,15 @@ def evict(d, s):
 # adds new data packets to the given dictionary to fill the sending window
 # and sends the ack request to the receiver
 def add_to(d):
+  global ID
+  if EOF:
+    return d
   while len(d) < WINDOW:
-    d[ID] = send_next_packet()
+    if EOF:
+      break
+    else:
+      d[ID] = send_next_packet()
+      ID += 1
   send_ack_request()
   return d
 
@@ -64,7 +71,6 @@ def log(string):
 # sends the ack request message
 def send_ack_request():
   msg = json.dumps({'ack': True})
-  log('SENDING ACK REQUEST')
   if sock.sendto(msg, dest) < len(msg):
     log('[error] unable to send full ack request')
 
@@ -75,18 +81,17 @@ def send_next_packet():
   data = sys.stdin.read(DATA_SIZE)
   if len(data) < DATA_SIZE:
     EOF = True
-    log('EOF')
   if len(data) > 0:
-    log(data)
     msg = json.dumps({"id": ID, "data": data, "ack": False, "eof": EOF})
     if sock.sendto(msg, dest) < len(msg):
       log("[error] unable to fully send packet")
     else:
       log("[send data] " + str(ID * DATA_SIZE) + " (" + str(len(data)) + ")")
-      ID += 1
     return data
   else:
-    log('NOTHING TO READ')
+    EOF = True
+    msg = json.dumps({'id': ID, 'data': '', 'ack': False, 'eof': EOF})
+    sock.sendto(msg, dest)
     return None
 
 # updates the sending window based on the state
@@ -116,7 +121,7 @@ while True:
         if x in acks:
           log("[recv ack] " + str(x))
           newly_acked += 1
-
+      
       if acks == set(range(ID)) and EOF:
         log('[completed]')
         sys.exit(0)
