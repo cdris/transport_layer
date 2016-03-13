@@ -38,7 +38,7 @@ def insert(key, keys):
       keys.insert(i, key)
       return i
   keys.append(key)
-  return i + 1
+  return len(keys)
 
 # prints all messages that can be printed and returns the next_id to print
 def write_messages(next_id, messages_in_memory):
@@ -69,10 +69,11 @@ sock.settimeout(TIMEOUT)
 UDP_PORT = sock.getsockname()[1]
 log("[bound] " + str(UDP_PORT))
 
-ids_seen = []
-messages_in_memory = {}
-next_id_to_print = 0
-eof_seen = False
+ids_seen = []           # sorted list of ids seen
+messages_in_memory = {} # dict from ids to their message fields, dynamically updated
+next_id_to_print = 0    # the next id to print to keep in order value
+eof_seen = False        # whether or not we've seen the last message
+timeouts_in_row = 0     # the number of udp receive timeouts we've seen in a row
 
 # Now listen for packets
 while True:
@@ -80,6 +81,7 @@ while True:
 
   # If nothing is ready, we hit the timeout
   if result:
+    timeouts_in_row = 0
     (data, addr) = result
 
     try:
@@ -105,9 +107,9 @@ while True:
           inserted_at = insert(id, ids_seen)
           messages_in_memory[id] = data
           if inserted_at == len(ids_seen):
-            log_help("RECEIVED (in order)")
+            log_help("ACCEPTED (in order)")
           else:
-            log_help("RECEIVED (out-of order)")
+            log_help("ACCEPTED (out-of order)")
   
         # Print the messages we can
         next_id_to_print = write_messages(next_id_to_print, messages_in_memory)
@@ -124,4 +126,7 @@ while True:
       log("[recv corrupt packet], IGNORED")
   else:
     log("[error] timeout")
-    sys.exit(-1)
+    timeouts_in_row += 1
+    if timeouts_in_row == 5:
+      log("[where are my messages?] EXITING")
+      exit(-1)

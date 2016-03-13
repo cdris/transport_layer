@@ -64,14 +64,14 @@ def log(string):
 # sends the ack request message
 def send_ack_request():
   msg = json.dumps({'ack': True})
-  sock.sendto(msg, dest)
+  if sock.sendto(msg, dest) < len(msg):
+    log('[error] unable to send full ack request')
 
 # sends the next packet and increments the ID
 def send_next_packet():
   global ID
   global EOF
   data = sys.stdin.read(DATA_SIZE)
-  eof = False
   if len(data) < DATA_SIZE:
     EOF = True
   if len(data) > 0:
