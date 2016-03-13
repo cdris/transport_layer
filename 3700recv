@@ -11,6 +11,41 @@ import datetime
 import select
 import json
 
+# converts the list of tuples of received messages into a string
+def to_ranges(keys):
+  keys_only = keys[:]
+  ranges = []
+  if keys_only:
+    maxi = keys_only.pop()
+    mini = maxi
+    while keys_only:
+      popped = keys_only.pop()
+      if mini - popped == 1:
+        mini = popped
+      else:
+        ranges.append((mini, maxi))
+        maxi, mini = popped, popped
+    ranges.append((mini, maxi))
+    ranges.reverse()
+    return " ".join([str(x[0]) if x[0] == x[1] else str(x[0]) + ":" + str(x[1]) for x in ranges])
+  else:
+    return ""
+  
+# inserts the tuple into the list of tuples in sorted order  
+def insert(tuple, tuples):
+  for i in range(len(tuples)):
+    if tuple[0] < tuples[i][0]:
+      tuples.insert(i, tuple)
+      return
+  tuples.append(tuple)
+
+# prints all messages that can be printed
+def write_messages(next_id, messages_in_memory):
+  if next_id in messages_in_memory
+    sys.stdout.write(messages_in_memory[next_id])
+    del messages_in_memory[next_id]
+    writes_messages(next_id + 1, messages_in_memory)
+
 def log(string):
   sys.stderr.write(datetime.datetime.now().strftime("%H:%M:%S.%f") + " " + string + "\n")
 
@@ -29,6 +64,11 @@ sock.settimeout(TIMEOUT)
 # Get port we bound to
 UDP_PORT = sock.getsockname()[1]
 log("[bound] " + str(UDP_PORT))
+
+ids_seen = []
+eof_seen = False
+messages_in_memory = {}
+next_id_to_print = 0
 
 # Now listen for packets
 while True:
