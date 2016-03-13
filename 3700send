@@ -137,7 +137,7 @@ while True:
         RTT = max(0.025, new_sample)
       else:
         estimate_rtt(new_sample)
-#      sock.settimeout(RTT * 20)
+      sock.settimeout(RTT * 20)
       log(str(RTT))
 
       # mark in flight packets as ACKed
@@ -164,5 +164,7 @@ while True:
   except socket.timeout:
     log("[error] timeout")
     SLOW_START = False
+    estimate_rtt(RTT * 2)
+    sock.settimeout(RTT * 2)
     send_ack_request()
-    WINDOW = WINDOW // 2
+    WINDOW = (2 * WINDOW) // 3
