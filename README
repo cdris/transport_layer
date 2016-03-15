@@ -1,0 +1,13 @@
+For this project, we implemented a protocol originally inspired by TCP Reno. We use addictive increase and multiplicative decrease for the size of our window, and a group acknowledgement. The group acknowledgement flag uses space separated inclusive ranges to transmit the entirety of ids that have been received. As security was not a concern this project, we use a simple 0-indexed sequence number to preserve the order of our packets. We use a hybrid of a three and four way handshake to close connections, even under high packet loss. Our packet header consists of four fields: (id : the numeric id of the packet, or one of special closing flags used during the handshake), (data : the message of the packet), (ack : a boolean flag stating whether this is an ack request), and (eof : stating whether this is the final message).
+
+The receiver and the sender share a common structure, with the bulk of the bookkeeping handled by the sender. Both programs utilize a while loop that continuously reads in messages from the udp socket, or times out. 
+
+The receiver uses a sorted list to store the ids seen so far, and dynamically keeps the actual messages in a dictionary that keeps the out of order packets and prints them in order as soon as can be done. 
+
+The sender estimates the RTT to dynamically change the timeout. It also parses the group acknowledgements to determine what messages can be evicted from the sending window (a dictionary of ids to messages). It then repopulates the window with data from stdin, read as needed, then sequenced with ids corresponding to the order. 
+
+We faced challenges in handling different latencies, particularly due to the RTT. We solved the issue by fine-tuning the RTT estimation for dynamic timeouts. We also faced challenges with packet dropping. Because the packet dropping tests are not due to congestion, we found it difficult to differentiate between the two situations. We solved the issue by starting our protocol with a higher window for in-flight packets and setting a minimum for the number of packets that could be in flight as packet dropping caused our window to consistently decrease to 1. This was also in part solved by the dynamic timeouts.
+
+Our code was heavily unit tested for all helper functions until it came time to actually test the program as a whole over a network. For any testing involving sockets we used the provided scripts. From the beginning many of the provided tests passed, but for those that did not, we used netsim and the run script to fully diagnose issues. We found piping output to a text file was much easier than reading it all in the shell, and it allowed us to quickly search for the debugging messages we used during testing.
+
+- Ceridwen Driskill, Ty Coghlan

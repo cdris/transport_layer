@@ -1,8 +1,4 @@
 #!/usr/bin/python -u
-#
-# CS3700, Spring 2015
-# Project 2 Starter Code
-#
 
 import sys
 import socket
@@ -76,8 +72,9 @@ eof_seen = False        # whether or not we've seen the last message
 timeouts_in_row = 0     # the number of udp receive timeouts we've seen in a row
 
 # sends an acknowledgement
-def ack():
-  msg = json.dumps(to_ranges(ids_seen))
+def ack(addr, msg = None):
+  if msg is None:
+    msg = json.dumps(to_ranges(ids_seen))
   log("ABOUT TO SEND " + msg)
   if sock.sendto(msg, addr) < len(msg):
     log("[error] unable to fully send packet")
@@ -90,21 +87,28 @@ while True:
   # If nothing is ready, we hit the timeout
     timeouts_in_row = 0
     (data, addr) = result
-
+    
     try:
       decoded = json.loads(data)
       # this is an ack request, send out an acknowledgment
       if decoded['ack']:      
-        ack()
+        ack(addr)
       else: 
         id = decoded['id']
         data = decoded['data']
         packet_length = len(data)
         log_help = lambda x: log("[recv data] " + str(id * DATA_SIZE) + \
                              " (" + str(packet_length) + ") " + x)  
-
+        if id == 'done':
+          ack(addr, json.dumps({'id': 'closing'}))
+          continue
+        elif id == 'close':
+          ack(addr, json.dumps({'id': 'closed'}))
+          log('[completed]')
+          sock.close()
+          exit(0)
         # If we've already seen this packet, ignore it
-        if id in ids_seen:
+        elif id in ids_seen:
           log_help("IGNORED")
         else: 
         # Add the packet to our collections, then check if it's in order or not
@@ -124,14 +128,12 @@ while True:
         
         # If we've seen the EOF flag and we have every packet up until it, exit
         if eof_seen and len(ids_seen) == ids_seen[-1] + 1:
-          ack()
-          log("[completed]")
-          exit(0)
+          ack(addr)
     except (ValueError, KeyError, TypeError) as e:
-      log("[recv corrupt packet], IGNORED")
+      log("[recv corrupt packet], IGNORED " + str(e))
   except socket.timeout:
     log("[error] timeout")
     timeouts_in_row += 1
-    if timeouts_in_row == 555:
+    if timeouts_in_row == 6:
       log("[where are my messages?] EXITING")
       exit(-1)

@@ -32,7 +32,6 @@ def estimate_rtt(new):
   global RTT
   alpha = 0.875
   RTT = (alpha * RTT) + ((1 - alpha) * new)
-  log('RTT ' + str(RTT))
 
 # converts a string representation of received IDs into a set
 def from_ranges(s):
@@ -80,7 +79,6 @@ def log(string):
 # sends the ack request message
 def send_ack_request():
   msg = json.dumps({'ack': True})
-  log('ACK REQUESTED')
   if sock.sendto(msg, dest) < len(msg):
     log('[error] unable to send full ack request')
 
@@ -107,7 +105,7 @@ def send_next_packet():
 # resends the packet with the given id
 def resend(id):
   IN_FLIGHT[id] = (IN_FLIGHT[id][0], time.time(), True)
-  msg = json.dumps({'id': id, 'data': IN_FLIGHT[id][0], 'ack': False, 'eof': EOF})
+  msg = json.dumps({'id': id, 'data': IN_FLIGHT[id][0], 'ack': False, 'eof': id == ID - 1 and EOF})
   if sock.sendto(msg, dest) < len(msg):
     log('[error] unable to fully send packet')
   else:
@@ -127,6 +125,16 @@ def resend_all():
   for x in IN_FLIGHT.keys():
     resend(x)
 
+# sends a done message
+def send_done():
+  msg = json.dumps({'id': 'done', 'data': '', 'ack': False, 'eof': False})
+  sock.sendto(msg, dest)
+
+# sends a close message
+def send_close():
+  msg = json.dumps({'id': 'close', 'data': '', 'ack': False, 'eof': False})
+  sock.sendto(msg, dest)
+
 # sends the first packet
 add_to(IN_FLIGHT)
 
@@ -138,7 +146,6 @@ while True:
     (data, addr) = result
     try:
       decoded = json.loads(data)
-      log('ACK RECEIVED')
       # mark in flight packets as ACKed
       acks = from_ranges(decoded)
       newly_acked = 0
@@ -148,7 +155,6 @@ while True:
           log("[recv ack] " + str(x))
           newly_acked += 1
           if not IN_FLIGHT[x][2]:
-            log('NEW SAMPLE ' + str(now - IN_FLIGHT[x][1]))
             estimate_rtt(now - IN_FLIGHT[x][1])
         elif (now - IN_FLIGHT[x][1] >= RTT and not acks) or max(acks) > x:
           resend(x)
@@ -156,8 +162,7 @@ while True:
       sock.settimeout(RTT * 1.5)
 
       if acks == set(range(ID)) and EOF:
-        log('[completed]')
-        sys.exit(0)
+        break
 
       update_window(newly_acked)
   
@@ -174,3 +179,34 @@ while True:
     resend_all()
     send_ack_request()
     WINDOW = max(4, (2 * WINDOW) // 3)
+
+send_done()
+
+SEND_FIN = True
+timeout_count = 0
+# final shutdown loop
+while True:
+  try:
+    result = sock.recvfrom(MSG_SIZE)
+    
+    (data, addr) = result
+    decoded = json.loads(data)
+    if decoded['id'] == 'closing':
+      SEND_FIN = False
+      send_close()
+    elif decoded['id'] == 'closed':
+      sock.close()
+      sys.exit(0)
+    else:
+      send_done()
+  except (socket.timeout, KeyError, TypeError):
+    if timeout_count == 4:
+      log('[completed]')
+      sock.close()
+      sys.exit(0)
+
+    if SEND_FIN:
+      send_done()
+    else:
+      send_close()
+      timeout_count += 1
